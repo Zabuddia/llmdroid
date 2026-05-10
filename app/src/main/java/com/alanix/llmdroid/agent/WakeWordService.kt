@@ -17,6 +17,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import android.net.Uri
 import com.alanix.llmdroid.LLMDroidApp
 import com.alanix.llmdroid.MainActivity
 import com.alanix.llmdroid.accessibility.LLMAccessibilityService
@@ -26,6 +27,8 @@ import com.alanix.llmdroid.io.stt.WhisperStt
 import com.alanix.llmdroid.io.tts.AndroidTts
 import com.alanix.llmdroid.io.wake.WakeWordDetector
 import com.alanix.llmdroid.model.AgentStatus
+import com.alanix.llmdroid.model.LogEntry
+import com.alanix.llmdroid.model.LogType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -228,6 +231,113 @@ class WakeWordService : Service() {
             return
         }
         Log.i(TAG, "Command: $command")
+        AgentService.log(LogType.System, "Heard: \"$command\"")
+
+        // "text [name] [message]" — SMS shortcut, agent taps send
+        val textMatch = Regex("^text\\s+(.+)$", RegexOption.IGNORE_CASE).find(command)
+        if (textMatch != null && settings.skillTextEnabled.first()) {
+            if (!LLMAccessibilityService.isRunning.value) {
+                AndroidTts.speak("Accessibility service is not enabled")
+                return
+            }
+            AgentService.log(LogType.System, "Skill: text — query=\"${textMatch.groupValues[1].trim()}\"")
+            val contactFound = handleTextCommand(textMatch.groupValues[1].trim())
+            if (!contactFound) {
+                AgentService.log(LogType.System, "Skill: text — no contact found, stopping")
+                AndroidTts.speak("No matching contact found")
+                return
+            }
+            AgentService.log(LogType.System, "Skill: text — contact found, handing to agent")
+            delay(1000)
+            startForegroundService(
+                Intent(this, AgentService::class.java).apply {
+                    action = AgentService.ACTION_START
+                    putExtra(AgentService.EXTRA_GOAL, "The message is already composed and ready. Tap the send button to send it.")
+                    putExtra(AgentService.EXTRA_VOICE_MODE, true)
+                }
+            )
+            return
+        }
+
+        // "message [...]" — open messaging app, agent handles it
+        val messageMatch = Regex("^message\\s+(.+)$", RegexOption.IGNORE_CASE).find(command)
+        if (messageMatch != null && settings.skillMessageEnabled.first()) {
+            if (!LLMAccessibilityService.isRunning.value) {
+                AndroidTts.speak("Accessibility service is not enabled")
+                return
+            }
+            AgentService.log(LogType.System, "Skill: message — opening messaging app")
+            val messagingPkg = settings.messagingApp.first()
+            if (messagingPkg.isNotBlank()) {
+                packageManager.getLaunchIntentForPackage(messagingPkg)
+                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ?.let { startActivity(it) }
+                AgentService.log(LogType.System, "Skill: message — launched $messagingPkg")
+                delay(1000)
+            } else {
+                AgentService.log(LogType.System, "Skill: message — no default messaging app set, agent will handle")
+            }
+            startForegroundService(
+                Intent(this, AgentService::class.java).apply {
+                    action = AgentService.ACTION_START
+                    putExtra(AgentService.EXTRA_GOAL, command)
+                    putExtra(AgentService.EXTRA_VOICE_MODE, true)
+                }
+            )
+            return
+        }
+
+        // "call [name]" — direct call, no LLM
+        val callMatch = Regex("^call\\s+(.+)$", RegexOption.IGNORE_CASE).find(command)
+        if (callMatch != null && settings.skillCallEnabled.first()) {
+            val name = callMatch.groupValues[1].trim()
+            AgentService.log(LogType.System, "Skill: call — looking up \"$name\"")
+            handleCallCommand(name)
+            return
+        }
+
+        // "open [app]" — instant launch if found, else fall through to agent
+        val openMatch = Regex("^open\\s+(.+)$", RegexOption.IGNORE_CASE).find(command)
+        if (openMatch != null && settings.skillOpenEnabled.first()) {
+            val query = openMatch.groupValues[1].trim()
+            AgentService.log(LogType.System, "Skill: open — looking up \"$query\"")
+            val result = AppLookup.findBest(packageManager, query)
+            if (result != null) {
+                AgentService.log(LogType.System, "Skill: open — matched \"${result.label}\" (${result.packageName})")
+                handleOpenCommand(result)
+                return
+            } else {
+                AgentService.log(LogType.System, "Skill: open — no match for \"$query\", falling through to agent")
+            }
+        }
+
+        // "play [...]" — open music app, agent handles playback
+        val playMatch = Regex("^play\\s+.+$", RegexOption.IGNORE_CASE).find(command)
+        if (playMatch != null && settings.skillPlayEnabled.first()) {
+            if (!LLMAccessibilityService.isRunning.value) {
+                AndroidTts.speak("Accessibility service is not enabled")
+                return
+            }
+            AgentService.log(LogType.System, "Skill: play — opening music app")
+            val musicPkg = settings.musicApp.first()
+            if (musicPkg.isNotBlank()) {
+                packageManager.getLaunchIntentForPackage(musicPkg)
+                    ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    ?.let { startActivity(it) }
+                AgentService.log(LogType.System, "Skill: play — launched $musicPkg")
+                delay(1000)
+            } else {
+                AgentService.log(LogType.System, "Skill: play — no default music app set, agent will handle")
+            }
+            startForegroundService(
+                Intent(this, AgentService::class.java).apply {
+                    action = AgentService.ACTION_START
+                    putExtra(AgentService.EXTRA_GOAL, command)
+                    putExtra(AgentService.EXTRA_VOICE_MODE, true)
+                }
+            )
+            return
+        }
 
         if (!LLMAccessibilityService.isRunning.value) {
             AndroidTts.speak("Accessibility service is not enabled")
@@ -241,6 +351,66 @@ class WakeWordService : Service() {
                 putExtra(AgentService.EXTRA_VOICE_MODE, true)
             }
         )
+    }
+
+    private fun handleTextCommand(query: String): Boolean {
+        val words = query.trim().split("\\s+".toRegex())
+        val hasContacts = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+
+        var contactNumber: String? = null
+        var messageStart = 0
+        if (hasContacts) {
+            for (i in 1..minOf(words.size, 4)) {
+                val namePart = words.take(i).joinToString(" ")
+                val result = ContactLookup.findBestForName(contentResolver, namePart)
+                val queryNorm = ContactLookup.normalize(namePart)
+                if (result != null) {
+                    val prefixNorm = ContactLookup.normalize(
+                        result.name.trim().split("\\s+".toRegex()).take(i).joinToString(" ")
+                    )
+                    val dist = ContactLookup.editDistance(queryNorm, prefixNorm)
+                    AgentService.log(LogType.System, "Skill: text — i=$i \"$namePart\" → \"${result.name}\" dist=$dist")
+                    contactNumber = result.number
+                    messageStart = i
+                } else {
+                    AgentService.log(LogType.System, "Skill: text — i=$i \"$namePart\" (norm=\"$queryNorm\") no match")
+                }
+            }
+        }
+
+        val message = words.drop(messageStart).joinToString(" ")
+        AgentService.log(LogType.System, "Skill: text — number=${contactNumber ?: "none"}, message=\"$message\"")
+        val uri = Uri.parse(if (contactNumber != null) "smsto:$contactNumber" else "smsto:")
+        startActivity(
+            Intent(Intent.ACTION_SENDTO, uri).apply {
+                if (message.isNotBlank()) putExtra("sms_body", message)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
+        return contactNumber != null
+    }
+
+    private fun handleOpenCommand(app: AppLookup.AppResult) {
+        val intent = packageManager.getLaunchIntentForPackage(app.packageName)
+            ?: return
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
+    }
+
+    private fun handleCallCommand(name: String) {
+        Log.i(TAG, "Direct call: $name")
+        val hasContacts = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+        val result = if (hasContacts) ContactLookup.findBest(contentResolver, name) else null
+        val uri = if (result != null) "tel:${result.number}" else "tel:"
+        val canCallDirectly = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.CALL_PHONE
+        ) == PackageManager.PERMISSION_GRANTED
+        val action = if (canCallDirectly) Intent.ACTION_CALL else Intent.ACTION_DIAL
+        startActivity(Intent(action, Uri.parse(uri)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
     }
 
     private fun createChannels() {

@@ -76,12 +76,24 @@ fun SettingsScreen() {
         mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED)
     }
+    var hasContactsPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
+            == PackageManager.PERMISSION_GRANTED)
+    }
+    var hasCallPermission by remember {
+        mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE)
+            == PackageManager.PERMISSION_GRANTED)
+    }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 canDrawOverlays = Settings.canDrawOverlays(context)
                 hasMicPermission = (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED)
+                hasContactsPermission = (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS)
+                    == PackageManager.PERMISSION_GRANTED)
+                hasCallPermission = (ContextCompat.checkSelfPermission(context, Manifest.permission.CALL_PHONE)
                     == PackageManager.PERMISSION_GRANTED)
             }
         }
@@ -161,6 +173,30 @@ fun SettingsScreen() {
         PermissionRow(
             label = "Microphone (voice input)",
             granted = hasMicPermission,
+            onFix = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}")
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                )
+            }
+        )
+
+        PermissionRow(
+            label = "Contacts (call by name)",
+            granted = hasContactsPermission,
+            onFix = {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}")
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                )
+            }
+        )
+
+        PermissionRow(
+            label = "Phone (place calls directly)",
+            granted = hasCallPermission,
             onFix = {
                 context.startActivity(
                     Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

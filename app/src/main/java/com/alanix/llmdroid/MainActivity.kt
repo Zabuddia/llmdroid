@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,22 +32,27 @@ import com.alanix.llmdroid.agent.WakeWordService
 import com.alanix.llmdroid.ui.screens.ChatScreen
 import com.alanix.llmdroid.ui.screens.LogsScreen
 import com.alanix.llmdroid.ui.screens.SettingsScreen
+import com.alanix.llmdroid.ui.screens.SkillsScreen
 import com.alanix.llmdroid.ui.theme.LLMDroidTheme
 import kotlinx.coroutines.flow.first
 
 class MainActivity : ComponentActivity() {
 
-    private val notificationPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* handled silently */ }
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { /* handled silently */ }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        val perms = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                add(Manifest.permission.POST_NOTIFICATIONS)
+            add(Manifest.permission.READ_CONTACTS)
+            add(Manifest.permission.CALL_PHONE)
         }
+        permissionLauncher.launch(perms.toTypedArray())
 
         val settings = (applicationContext as LLMDroidApp).settingsStore
 
@@ -83,6 +89,12 @@ class MainActivity : ComponentActivity() {
                             NavigationBarItem(
                                 selected = selectedTab == 2,
                                 onClick = { selectedTab = 2 },
+                                icon = { Icon(Icons.Default.Build, contentDescription = null) },
+                                label = { Text("Skills") }
+                            )
+                            NavigationBarItem(
+                                selected = selectedTab == 3,
+                                onClick = { selectedTab = 3 },
                                 icon = { Icon(Icons.Default.Settings, contentDescription = null) },
                                 label = { Text("Settings") }
                             )
@@ -98,7 +110,8 @@ class MainActivity : ComponentActivity() {
                         when (selectedTab) {
                             0 -> ChatScreen()
                             1 -> LogsScreen()
-                            2 -> SettingsScreen()
+                            2 -> SkillsScreen()
+                            3 -> SettingsScreen()
                         }
                     }
                 }

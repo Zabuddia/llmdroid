@@ -27,6 +27,13 @@ class SettingsStore(private val context: Context) {
         private val KEY_STT_ENGINE = stringPreferencesKey("stt_engine")
         private val KEY_WHISPER_URL = stringPreferencesKey("whisper_url")
         private val KEY_WHISPER_MODEL = stringPreferencesKey("whisper_model")
+        private val KEY_MUSIC_APP = stringPreferencesKey("music_app")
+        private val KEY_MESSAGING_APP = stringPreferencesKey("messaging_app")
+        private val KEY_SKILL_CALL_ENABLED = booleanPreferencesKey("skill_call_enabled")
+        private val KEY_SKILL_OPEN_ENABLED = booleanPreferencesKey("skill_open_enabled")
+        private val KEY_SKILL_PLAY_ENABLED = booleanPreferencesKey("skill_play_enabled")
+        private val KEY_SKILL_TEXT_ENABLED = booleanPreferencesKey("skill_text_enabled")
+        private val KEY_SKILL_MESSAGE_ENABLED = booleanPreferencesKey("skill_message_enabled")
 
         const val DEFAULT_SERVER_URL = "http://alan-framework:4000"
         const val DEFAULT_MODEL = "qwen3.6-35b-a3b"
@@ -91,6 +98,13 @@ Rules:
     val sttEngine: Flow<String> = context.dataStore.data.map { it[KEY_STT_ENGINE] ?: STT_ENGINE_VOSK }
     val whisperUrl: Flow<String> = context.dataStore.data.map { it[KEY_WHISPER_URL] ?: DEFAULT_WHISPER_URL }
     val whisperModel: Flow<String> = context.dataStore.data.map { it[KEY_WHISPER_MODEL] ?: DEFAULT_WHISPER_MODEL }
+    val musicApp: Flow<String> = context.dataStore.data.map { it[KEY_MUSIC_APP] ?: "" }
+    val messagingApp: Flow<String> = context.dataStore.data.map { it[KEY_MESSAGING_APP] ?: "" }
+    val skillCallEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_CALL_ENABLED] ?: true }
+    val skillOpenEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_OPEN_ENABLED] ?: true }
+    val skillPlayEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_PLAY_ENABLED] ?: true }
+    val skillTextEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_TEXT_ENABLED] ?: true }
+    val skillMessageEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_MESSAGE_ENABLED] ?: true }
 
     suspend fun setServerUrl(value: String) = context.dataStore.edit { it[KEY_SERVER_URL] = value }
     suspend fun setApiKey(value: String) = context.dataStore.edit { it[KEY_API_KEY] = value }
@@ -103,4 +117,11 @@ Rules:
     suspend fun setSttEngine(value: String) = context.dataStore.edit { it[KEY_STT_ENGINE] = value }
     suspend fun setWhisperUrl(value: String) = context.dataStore.edit { it[KEY_WHISPER_URL] = value }
     suspend fun setWhisperModel(value: String) = context.dataStore.edit { it[KEY_WHISPER_MODEL] = value }
+    suspend fun setMusicApp(value: String) = context.dataStore.edit { it[KEY_MUSIC_APP] = value }
+    suspend fun setMessagingApp(value: String) = context.dataStore.edit { it[KEY_MESSAGING_APP] = value }
+    suspend fun setSkillCallEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_CALL_ENABLED] = value }
+    suspend fun setSkillOpenEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_OPEN_ENABLED] = value }
+    suspend fun setSkillPlayEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_PLAY_ENABLED] = value }
+    suspend fun setSkillTextEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_TEXT_ENABLED] = value }
+    suspend fun setSkillMessageEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_MESSAGE_ENABLED] = value }
 }
