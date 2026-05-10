@@ -1,0 +1,4 @@
+-keep class com.alanix.llmdroid.** { *; }
+-keepattributes *Annotation*
+-dontwarn okhttp3.**
+-dontwarn io.ktor.**
