@@ -111,23 +111,3 @@ app/src/main/java/com/alanix/llmdroid/
         ├── LogsScreen.kt
         └── SettingsScreen.kt
 ```
-
-## Building
-
-```bash
-# Clone the repo
-git clone https://github.com/YOUR_USERNAME/alanix-llmdroid.git
-cd alanix-llmdroid
-
-# Build a debug APK (requires Android SDK)
-./gradlew assembleDebug
-
-# Install directly to a connected device
-./gradlew installDebug
-```
-
-Requires Android SDK with `compileSdk = 36`. Set `ANDROID_HOME` or add `sdk.dir` to `local.properties`.
-
-## License
-
-MIT
