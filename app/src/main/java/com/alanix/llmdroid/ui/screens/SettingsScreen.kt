@@ -94,6 +94,9 @@ fun SettingsScreen() {
     var model by remember { mutableStateOf("") }
     var systemPrompt by remember { mutableStateOf("") }
     var maxIterations by remember { mutableStateOf("") }
+    var sttEngine by remember { mutableStateOf(SettingsStore.STT_ENGINE_VOSK) }
+    var whisperUrl by remember { mutableStateOf("") }
+    var whisperModel by remember { mutableStateOf("") }
     var initialized by remember { mutableStateOf(false) }
     val wakeServiceRunning by WakeWordService.isRunning.collectAsState()
     val owwState by WakeWordDetector.state.collectAsState()
@@ -107,6 +110,9 @@ fun SettingsScreen() {
             model = settings.model.first()
             systemPrompt = settings.systemPrompt.first()
             maxIterations = settings.maxIterations.first().toString()
+            sttEngine = settings.sttEngine.first()
+            whisperUrl = settings.whisperUrl.first()
+            whisperModel = settings.whisperModel.first()
             initialized = true
         }
     }
@@ -269,6 +275,72 @@ fun SettingsScreen() {
 
         HorizontalDivider()
 
+        // --- Speech-to-Text ---
+        Text("Speech-to-Text", style = MaterialTheme.typography.titleMedium)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val isVosk = sttEngine == SettingsStore.STT_ENGINE_VOSK
+            if (isVosk) {
+                Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Vosk (offline)") }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        sttEngine = SettingsStore.STT_ENGINE_VOSK
+                        scope.launch { settings.setSttEngine(SettingsStore.STT_ENGINE_VOSK) }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Vosk (offline)") }
+            }
+            if (!isVosk) {
+                Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Whisper API") }
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        sttEngine = SettingsStore.STT_ENGINE_WHISPER
+                        scope.launch { settings.setSttEngine(SettingsStore.STT_ENGINE_WHISPER) }
+                    },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Whisper API") }
+            }
+        }
+
+        if (sttEngine == SettingsStore.STT_ENGINE_VOSK) {
+            ModelStatusRow("Speech recognition (Vosk)", voskState.statusText)
+            Text(
+                "Vosk model is downloaded automatically on first use.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        } else {
+            OutlinedTextField(
+                value = whisperUrl,
+                onValueChange = {
+                    whisperUrl = it
+                    scope.launch { settings.setWhisperUrl(it) }
+                },
+                label = { Text("Whisper API URL") },
+                placeholder = { Text(SettingsStore.DEFAULT_WHISPER_URL) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            OutlinedTextField(
+                value = whisperModel,
+                onValueChange = {
+                    whisperModel = it
+                    scope.launch { settings.setWhisperModel(it) }
+                },
+                label = { Text("Whisper model") },
+                placeholder = { Text(SettingsStore.DEFAULT_WHISPER_MODEL) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+        }
+
+        HorizontalDivider()
+
         // --- Wake Word ---
         Text("Wake Word", style = MaterialTheme.typography.titleMedium)
 
@@ -307,13 +379,12 @@ fun SettingsScreen() {
         }
 
         Text(
-            "Say \"Hey Dicio\" to activate voice command. Models are downloaded automatically on first use.",
+            "Say \"Hey Dicio\" to activate voice command.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
         ModelStatusRow("Wake word (OpenWakeWord)", owwState.statusText)
-        ModelStatusRow("Speech recognition (Vosk)", voskState.statusText)
 
         HorizontalDivider()
 

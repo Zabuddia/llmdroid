@@ -24,9 +24,16 @@ class SettingsStore(private val context: Context) {
         private val KEY_MAX_ITERATIONS = intPreferencesKey("max_iterations")
         private val KEY_MAX_HISTORY_TURNS = intPreferencesKey("max_history_turns")
         private val KEY_WAKE_WORD_ENABLED = booleanPreferencesKey("wake_word_enabled")
+        private val KEY_STT_ENGINE = stringPreferencesKey("stt_engine")
+        private val KEY_WHISPER_URL = stringPreferencesKey("whisper_url")
+        private val KEY_WHISPER_MODEL = stringPreferencesKey("whisper_model")
 
         const val DEFAULT_SERVER_URL = "http://alan-framework:4000"
         const val DEFAULT_MODEL = "qwen3.6-35b-a3b"
+        const val DEFAULT_WHISPER_URL = "http://alan-framework:4000"
+        const val DEFAULT_WHISPER_MODEL = "whisper-small"
+        const val STT_ENGINE_VOSK = "vosk"
+        const val STT_ENGINE_WHISPER = "whisper"
 
         val DEFAULT_SYSTEM_PROMPT = """
 You are an Android automation agent. You control a real device by reading its UI accessibility tree and issuing actions.
@@ -61,6 +68,7 @@ Supported actions (all fields shown, optional fields may be omitted):
   intent        {"action":"intent","intentAction":"android.intent.action.VIEW","uri":"..."}
   clipboard_set {"action":"clipboard_set","text":"..."}
   clipboard_get {"action":"clipboard_get"}
+  call          {"action":"call","contactName":"Alice"}
 
 Rules:
 - To open any app, ALWAYS use {"action":"launch","packageName":"..."} — never navigate the home screen or app drawer.
@@ -80,6 +88,9 @@ Rules:
     val maxIterations: Flow<Int> = context.dataStore.data.map { it[KEY_MAX_ITERATIONS] ?: 30 }
     val maxHistoryTurns: Flow<Int> = context.dataStore.data.map { it[KEY_MAX_HISTORY_TURNS] ?: 20 }
     val wakeWordEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_WAKE_WORD_ENABLED] ?: false }
+    val sttEngine: Flow<String> = context.dataStore.data.map { it[KEY_STT_ENGINE] ?: STT_ENGINE_VOSK }
+    val whisperUrl: Flow<String> = context.dataStore.data.map { it[KEY_WHISPER_URL] ?: DEFAULT_WHISPER_URL }
+    val whisperModel: Flow<String> = context.dataStore.data.map { it[KEY_WHISPER_MODEL] ?: DEFAULT_WHISPER_MODEL }
 
     suspend fun setServerUrl(value: String) = context.dataStore.edit { it[KEY_SERVER_URL] = value }
     suspend fun setApiKey(value: String) = context.dataStore.edit { it[KEY_API_KEY] = value }
@@ -89,4 +100,7 @@ Rules:
     suspend fun setMaxIterations(value: Int) = context.dataStore.edit { it[KEY_MAX_ITERATIONS] = value }
     suspend fun setMaxHistoryTurns(value: Int) = context.dataStore.edit { it[KEY_MAX_HISTORY_TURNS] = value }
     suspend fun setWakeWordEnabled(value: Boolean) = context.dataStore.edit { it[KEY_WAKE_WORD_ENABLED] = value }
+    suspend fun setSttEngine(value: String) = context.dataStore.edit { it[KEY_STT_ENGINE] = value }
+    suspend fun setWhisperUrl(value: String) = context.dataStore.edit { it[KEY_WHISPER_URL] = value }
+    suspend fun setWhisperModel(value: String) = context.dataStore.edit { it[KEY_WHISPER_MODEL] = value }
 }

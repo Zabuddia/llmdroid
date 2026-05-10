@@ -17,9 +17,12 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.alanix.llmdroid.LLMDroidApp
 import com.alanix.llmdroid.MainActivity
 import com.alanix.llmdroid.accessibility.LLMAccessibilityService
+import com.alanix.llmdroid.data.SettingsStore
 import com.alanix.llmdroid.io.stt.VoskManager
+import com.alanix.llmdroid.io.stt.WhisperStt
 import com.alanix.llmdroid.io.tts.AndroidTts
 import com.alanix.llmdroid.io.wake.WakeWordDetector
 import com.alanix.llmdroid.model.AgentStatus
@@ -29,6 +32,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
@@ -50,6 +54,8 @@ class WakeWordService : Service() {
         val isRunning = MutableStateFlow(false)
         val listeningText = MutableStateFlow<String?>(null)
     }
+
+    private val settings get() = (application as LLMDroidApp).settingsStore
 
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
@@ -124,9 +130,12 @@ class WakeWordService : Service() {
             throw RuntimeException("Wake word model failed: ${WakeWordDetector.state.value}")
         }
 
-        VoskManager.ensureReady(this) { msg -> updateForegroundNotification(msg) }
-        if (VoskManager.state.value is VoskManager.State.Error) {
-            throw RuntimeException("Vosk model failed: ${VoskManager.state.value}")
+        val engine = settings.sttEngine.first()
+        if (engine == SettingsStore.STT_ENGINE_VOSK) {
+            VoskManager.ensureReady(this) { msg -> updateForegroundNotification(msg) }
+            if (VoskManager.state.value is VoskManager.State.Error) {
+                throw RuntimeException("Vosk model failed: ${VoskManager.state.value}")
+            }
         }
 
         withContext(Dispatchers.Main) { AndroidTts.init(this@WakeWordService) }
@@ -185,13 +194,30 @@ class WakeWordService : Service() {
         showListeningNotification("Listening…")
         listeningText.value = "Listening…"
 
-        val command = VoskManager.transcribeOnce(
-            maxDurationMs = 8000,
-            onPartial = { partial ->
-                listeningText.value = partial
-                updateListeningNotification(partial)
-            },
-        )?.trim()
+        val engine = settings.sttEngine.first()
+        val command = if (engine == SettingsStore.STT_ENGINE_WHISPER) {
+            val url = settings.whisperUrl.first()
+            val whisperModel = settings.whisperModel.first()
+            val apiKey = settings.apiKey.first()
+            WhisperStt.transcribeOnce(
+                whisperUrl = url,
+                whisperModel = whisperModel,
+                apiKey = apiKey,
+                maxDurationMs = 8000,
+                onPartial = { partial ->
+                    listeningText.value = partial
+                    updateListeningNotification(partial)
+                },
+            )?.trim()
+        } else {
+            VoskManager.transcribeOnce(
+                maxDurationMs = 8000,
+                onPartial = { partial ->
+                    listeningText.value = partial
+                    updateListeningNotification(partial)
+                },
+            )?.trim()
+        }
 
         listeningText.value = null
         notificationManager.cancel(LISTENING_NOTIFICATION_ID)

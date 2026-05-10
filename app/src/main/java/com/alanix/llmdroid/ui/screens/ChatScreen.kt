@@ -56,6 +56,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -88,11 +89,14 @@ fun ChatScreen() {
     var goalText by remember { mutableStateOf("") }
     var micState by remember { mutableStateOf(MicState.Idle) }
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
 
     val wakeListeningText by WakeWordService.listeningText.collectAsState()
 
     val voiceInput = remember {
         VoiceInput(
+            settings = settings,
+            scope = scope,
             onPartial = { goalText = it },
             onResult = { goalText = it },
             onEnd = { micState = MicState.Idle }

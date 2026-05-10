@@ -18,4 +18,5 @@ data class AgentAction(
     val code: Int? = null,
     val intentAction: String? = null,
     val uri: String? = null,
+    val contactName: String? = null,
 )

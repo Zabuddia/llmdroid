@@ -1,7 +1,11 @@
 package com.alanix.llmdroid.agent
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import androidx.core.content.ContextCompat
 import com.alanix.llmdroid.accessibility.GestureExecutor
 import com.alanix.llmdroid.accessibility.LLMAccessibilityService
 import com.alanix.llmdroid.accessibility.ScreenTreeBuilder
@@ -174,6 +178,25 @@ class AgentLoop(
         }
     }
 
+    private fun handleCall(name: String): Pair<Boolean, String> {
+        val result = ContactLookup.findBest(context.contentResolver, name)
+        val (uri, summary) = if (result != null) {
+            Pair("tel:${result.number}", "calling ${result.name} (${result.number})")
+        } else {
+            Pair("tel:", "contact '$name' not found, opening dialer")
+        }
+
+        val canCallDirectly = ContextCompat.checkSelfPermission(
+            context, Manifest.permission.CALL_PHONE
+        ) == PackageManager.PERMISSION_GRANTED
+
+        val action = if (canCallDirectly) Intent.ACTION_CALL else Intent.ACTION_DIAL
+        context.startActivity(
+            Intent(action, Uri.parse(uri)).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+        )
+        return Pair(true, "call: $summary")
+    }
+
     private suspend fun executeActions(
         response: AgentResponse,
         tree: List<UIElement>,
@@ -185,6 +208,13 @@ class AgentLoop(
         for (action in actions) {
             if (shouldStop) return Pair(false, results)
             onUpdate(AgentUpdate.Log(LogEntry(type = LogType.ActionResult, content = "→ ${action.action}")))
+
+            if (action.action == "call") {
+                val (ok, msg) = handleCall(action.contactName ?: action.text ?: "")
+                results.add(msg)
+                onUpdate(AgentUpdate.Log(LogEntry(type = LogType.ActionResult, content = msg)))
+                continue
+            }
 
             val result = executor.execute(action, tree)
             val summary = buildString {
