@@ -1,8 +1,11 @@
 package com.alanix.llmdroid.accessibility
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.GestureDescription
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Path
+import android.os.Bundle
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityManager
@@ -10,6 +13,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 import com.alanix.llmdroid.model.UIElement
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 
 class LLMAccessibilityService : AccessibilityService() {
 
@@ -69,6 +74,76 @@ class LLMAccessibilityService : AccessibilityService() {
         }
         Log.w(TAG, "rootInActiveWindow null or empty after retries")
         return emptyList()
+    }
+
+    fun tapNodeWithText(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        return tapNodeWithTextRecursive(root, text)
+    }
+
+    private fun tapNodeWithTextRecursive(node: AccessibilityNodeInfo, text: String): Boolean {
+        val label = node.text?.toString() ?: node.contentDescription?.toString() ?: ""
+        if (label == text && node.isClickable) {
+            return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (tapNodeWithTextRecursive(child, text)) return true
+        }
+        return false
+    }
+
+    suspend fun swipeGesture(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long = 300): Boolean {
+        val path = Path().apply {
+            moveTo(x1.toFloat(), y1.toFloat())
+            lineTo(x2.toFloat(), y2.toFloat())
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs)
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        return suspendCancellableCoroutine { cont ->
+            dispatchGesture(gesture, object : AccessibilityService.GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) { if (cont.isActive) cont.resume(true) }
+                override fun onCancelled(g: GestureDescription?) { if (cont.isActive) cont.resume(false) }
+            }, null)
+        }
+    }
+
+    fun tapConfirmButton(): Boolean {
+        val root = rootInActiveWindow ?: return false
+        return tapConfirmRecursive(root)
+    }
+
+    private fun tapConfirmRecursive(node: AccessibilityNodeInfo): Boolean {
+        if (node.isClickable) {
+            val label = (node.text?.toString() ?: node.contentDescription?.toString() ?: "").lowercase()
+            if (label in listOf("ok", "enter", "done", "confirm", "unlock", "→", "➜")) {
+                return node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (tapConfirmRecursive(child)) return true
+        }
+        return false
+    }
+
+    fun trySetTextOnEditableNode(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        return trySetTextRecursive(root, text)
+    }
+
+    private fun trySetTextRecursive(node: AccessibilityNodeInfo, text: String): Boolean {
+        if (node.isEditable || node.isPassword) {
+            val args = Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+            }
+            if (node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)) return true
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            if (trySetTextRecursive(child, text)) return true
+        }
+        return false
     }
 
     fun findNodeAt(x: Int, y: Int): AccessibilityNodeInfo? {

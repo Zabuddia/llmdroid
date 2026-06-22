@@ -26,6 +26,9 @@ out/
 .DS_Store
 Thumbs.db
 
+# Kotlin compiler
+.kotlin/
+
 # DataStore / runtime data
 *.db
 *.db-shm

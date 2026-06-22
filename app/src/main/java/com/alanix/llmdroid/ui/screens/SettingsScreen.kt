@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -421,6 +422,58 @@ fun SettingsScreen() {
         )
 
         ModelStatusRow("Wake word (OpenWakeWord)", owwState.statusText)
+
+        HorizontalDivider()
+
+        // --- Text-to-Speech ---
+        Text("Text-to-Speech", style = MaterialTheme.typography.titleMedium)
+
+        val ttsEnabled by settings.ttsEnabled.collectAsStateWithLifecycle(false)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Speak responses aloud", style = MaterialTheme.typography.bodyMedium)
+            Switch(
+                checked = ttsEnabled,
+                onCheckedChange = { scope.launch { settings.setTtsEnabled(it) } }
+            )
+        }
+
+        val ttsRate by settings.ttsRate.collectAsStateWithLifecycle(1.0f)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Speed", style = MaterialTheme.typography.bodyMedium)
+            Text("${String.format("%.1f", ttsRate)}x", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Slider(
+            value = ttsRate,
+            onValueChange = { scope.launch { settings.setTtsRate(it) } },
+            valueRange = 0.5f..2.0f,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        val ttsPitch by settings.ttsPitch.collectAsStateWithLifecycle(1.0f)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Pitch", style = MaterialTheme.typography.bodyMedium)
+            Text(String.format("%.1f", ttsPitch), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Slider(
+            value = ttsPitch,
+            onValueChange = { scope.launch { settings.setTtsPitch(it) } },
+            valueRange = 0.5f..2.0f,
+            modifier = Modifier.fillMaxWidth()
+        )
 
         HorizontalDivider()
 

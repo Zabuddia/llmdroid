@@ -15,6 +15,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import android.accessibilityservice.AccessibilityService
 import com.alanix.llmdroid.LLMDroidApp
 import com.alanix.llmdroid.MainActivity
 import com.alanix.llmdroid.accessibility.LLMAccessibilityService
@@ -30,7 +31,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 class AgentService : LifecycleService() {
 
@@ -61,6 +61,9 @@ class AgentService : LifecycleService() {
     private var agentLoop: AgentLoop? = null
     private var overlay: AgentOverlay? = null
     private var voiceMode = false
+    private var ttsEnabled = false
+    private var unlockMode = false
+    private var unlockPin = ""
 
     inner class LocalBinder : Binder() {
         fun getService(): AgentService = this@AgentService
@@ -85,6 +88,7 @@ class AgentService : LifecycleService() {
             ACTION_START -> {
                 val goal = intent.getStringExtra(EXTRA_GOAL) ?: return START_NOT_STICKY
                 voiceMode = intent.getBooleanExtra(EXTRA_VOICE_MODE, false)
+                if (status.value == AgentStatus.Running) stopAgent()
                 startAgent(goal)
             }
             ACTION_STOP -> stopAgent()
@@ -93,32 +97,53 @@ class AgentService : LifecycleService() {
     }
 
     private fun startAgent(goal: String) {
-        var agentGoal = goal
-        var handled = false  // true = shortcut fully handled, don't start agent loop
+        // Reset UI state and start the foreground notification synchronously —
+        // Android requires startForeground() before the first suspension point.
+        logs.value = emptyList()
+        transcript.value = emptyList()
+        status.value = AgentStatus.Running
+        currentMessage.value = "Starting…"
+        startForeground(NOTIFICATION_ID, buildNotification("Starting…"))
 
-        runBlocking {
-            val trimmed = goal.trim()
-            log(LogType.System, "Goal: \"$trimmed\"")
+        agentJob = lifecycleScope.launch {
+            val normalized = goal.replace(Regex("[,;\\n\\r]+"), " ").replace(Regex("\\s+"), " ").trim()
+            var current = normalized
+            var agentGoal = normalized
+            log(LogType.System, "Goal: \"$current\"")
+
+            // --- Skill dispatch ---
+
+            // "unlock [task]" → store PIN, strip prefix, fall through to inner task's skills
+            val unlockMatch = Regex("^unlock\\s+(.+)$", RegexOption.IGNORE_CASE).find(current)
+            if (unlockMatch != null && settings.skillUnlockEnabled.first()) {
+                val innerTask = unlockMatch.groupValues[1].trim()
+                    .replace(Regex("^(and|then)\\s+", RegexOption.IGNORE_CASE), "")
+                    .trim()
+                unlockMode = true
+                unlockPin = settings.unlockPin.first()
+                current = innerTask
+                agentGoal = innerTask
+                log(LogType.System, "Skill: unlock — inner task=\"$innerTask\"")
+            }
 
             // "text [name] [message]" → open SMS app pre-filled, agent taps send
-            val textMatch = Regex("^text\\s+(.+)$", RegexOption.IGNORE_CASE).find(trimmed)
+            val textMatch = Regex("^text\\s+(.+)$", RegexOption.IGNORE_CASE).find(current)
             if (textMatch != null && settings.skillTextEnabled.first()) {
                 log(LogType.System, "Skill: text — query=\"${textMatch.groupValues[1].trim()}\"")
                 val contactFound = handleTextCommand(textMatch.groupValues[1].trim())
                 if (!contactFound) {
                     log(LogType.System, "Skill: text — no contact found, stopping")
-                    handled = true
-                    return@runBlocking
+                    if (voiceMode) AndroidTts.speak("No matching contact found")
+                    finishWithoutAgent()
+                    return@launch
                 }
                 agentGoal = "The message is already composed and ready. Tap the send button to send it."
                 log(LogType.System, "Skill: text — contact found, handing to agent")
-                return@runBlocking
             }
 
-            // "message [name] [message]" → open messaging app, agent handles it
-            val messageMatch = Regex("^message\\s+(.+)$", RegexOption.IGNORE_CASE).find(trimmed)
+            // "message [...]" → open messaging app, agent handles it
+            val messageMatch = Regex("^message\\s+(.+)$", RegexOption.IGNORE_CASE).find(current)
             if (messageMatch != null && settings.skillMessageEnabled.first()) {
-                log(LogType.System, "Skill: message — opening messaging app")
                 val messagingPkg = settings.messagingApp.first()
                 if (messagingPkg.isNotBlank()) {
                     packageManager.getLaunchIntentForPackage(messagingPkg)
@@ -126,47 +151,41 @@ class AgentService : LifecycleService() {
                         ?.let { startActivity(it) }
                     log(LogType.System, "Skill: message — launched $messagingPkg")
                 } else {
-                    log(LogType.System, "Skill: message — no default messaging app set, agent will handle")
+                    log(LogType.System, "Skill: message — no default app set, agent will handle")
                 }
-                return@runBlocking
             }
 
             // "call [name]" → call directly, no agent
-            val callMatch = Regex("^call\\s+(.+)$", RegexOption.IGNORE_CASE).find(trimmed)
+            val callMatch = Regex("^call\\s+(.+)$", RegexOption.IGNORE_CASE).find(current)
             if (callMatch != null && settings.skillCallEnabled.first()) {
                 val name = callMatch.groupValues[1].trim()
                 log(LogType.System, "Skill: call — looking up \"$name\"")
-                startForeground(NOTIFICATION_ID, buildNotification("Calling…"))
+                updateNotification("Calling…")
                 handleCallCommand(name)
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                handled = true
-                return@runBlocking
+                finishWithoutAgent()
+                return@launch
             }
 
-            // "open [app]" → launch directly if app found, no agent
-            val openMatch = Regex("^open\\s+(.+)$", RegexOption.IGNORE_CASE).find(trimmed)
+            // "open [app]" → launch directly if found, no agent
+            val openMatch = Regex("^open\\s+(.+)$", RegexOption.IGNORE_CASE).find(current)
             if (openMatch != null && settings.skillOpenEnabled.first()) {
                 val query = openMatch.groupValues[1].trim()
                 log(LogType.System, "Skill: open — looking up \"$query\"")
                 val result = AppLookup.findBest(packageManager, query)
                 if (result != null) {
                     log(LogType.System, "Skill: open — matched \"${result.label}\" (${result.packageName})")
-                    startForeground(NOTIFICATION_ID, buildNotification("Opening ${result.label}…"))
+                    updateNotification("Opening ${result.label}…")
                     handleOpenCommand(result)
-                    stopForeground(STOP_FOREGROUND_REMOVE)
-                    stopSelf()
-                    handled = true
-                    return@runBlocking
+                    finishWithoutAgent()
+                    return@launch
                 } else {
                     log(LogType.System, "Skill: open — no match for \"$query\", falling through to agent")
                 }
             }
 
             // "play [...]" → open music app, agent handles playback
-            val playMatch = Regex("^play\\s+.+$", RegexOption.IGNORE_CASE).find(trimmed)
+            val playMatch = Regex("^play\\s+.+$", RegexOption.IGNORE_CASE).find(current)
             if (playMatch != null && settings.skillPlayEnabled.first()) {
-                log(LogType.System, "Skill: play — opening music app")
                 val musicPkg = settings.musicApp.first()
                 if (musicPkg.isNotBlank()) {
                     packageManager.getLaunchIntentForPackage(musicPkg)
@@ -174,71 +193,121 @@ class AgentService : LifecycleService() {
                         ?.let { startActivity(it) }
                     log(LogType.System, "Skill: play — launched $musicPkg")
                 } else {
-                    log(LogType.System, "Skill: play — no default music app set, agent will handle")
+                    log(LogType.System, "Skill: play — no default app set, agent will handle")
                 }
             }
-        }
 
-        if (handled) return
-
-        val a11y = LLMAccessibilityService.instance
-        if (a11y == null) {
-            addLog(LogEntry(type = LogType.Error, content = "Accessibility service is not running"))
-            status.value = AgentStatus.Error
-            currentMessage.value = "Accessibility service not enabled"
-            return
-        }
-
-        logs.value = emptyList()
-        transcript.value = emptyList()
-        status.value = AgentStatus.Running
-        currentMessage.value = "Starting…"
-
-        startForeground(NOTIFICATION_ID, buildNotification("Running…"))
-
-        overlay = AgentOverlay(this).also { it.show() }
-
-        val settings = (application as LLMDroidApp).settingsStore
-        val loop = AgentLoop(
-            accessibilityService = a11y,
-            client = client,
-            settings = settings
-        ) { update ->
-            when (update) {
-                is AgentUpdate.StatusChange -> {
-                    status.value = update.status
-                    if (update.status != AgentStatus.Running) {
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        overlay?.destroy()
-                        overlay = null
-                    }
-                }
-                is AgentUpdate.Message -> {
-                    currentMessage.value = update.text
-                    updateNotification(update.text)
-                    if (voiceMode && update.text.isNotBlank()) {
-                        AndroidTts.speak(update.text)
-                    }
-                }
-                is AgentUpdate.Log -> addLog(update.entry)
-                is AgentUpdate.TranscriptAdd -> {
-                    transcript.value = transcript.value +
-                        TranscriptEntry(isAssistant = update.isAssistant, content = update.content)
+            // "search [...]" → open search app, agent handles the search
+            val searchMatch = Regex("^search\\s+.+$", RegexOption.IGNORE_CASE).find(current)
+            if (searchMatch != null && settings.skillSearchEnabled.first()) {
+                val searchPkg = settings.searchApp.first()
+                if (searchPkg.isNotBlank()) {
+                    packageManager.getLaunchIntentForPackage(searchPkg)
+                        ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        ?.let { startActivity(it) }
+                    log(LogType.System, "Skill: search — launched $searchPkg")
+                } else {
+                    log(LogType.System, "Skill: search — no default app set, agent will handle")
                 }
             }
-        }
 
-        agentLoop = loop
-        agentJob = lifecycleScope.launch {
+            // --- Agent loop setup ---
+
+            val a11y = LLMAccessibilityService.instance
+            if (a11y == null) {
+                log(LogType.Error, "Accessibility service is not running")
+                if (voiceMode) AndroidTts.speak("Accessibility service is not enabled")
+                status.value = AgentStatus.Error
+                currentMessage.value = "Accessibility service not enabled"
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                return@launch
+            }
+
+            overlay = AgentOverlay(this@AgentService).also { it.show() }
+            ttsEnabled = settings.ttsEnabled.first()
+            AndroidTts.setRate(settings.ttsRate.first())
+            AndroidTts.setPitch(settings.ttsPitch.first())
+
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as android.app.KeyguardManager
+            if (km.isKeyguardLocked && !unlockMode) {
+                log(LogType.Error, "Phone is locked. Say \"unlock ${agentGoal}\" to unlock it first.")
+                if (voiceMode) AndroidTts.speak("Phone is locked")
+                status.value = AgentStatus.Error
+                currentMessage.value = "Phone is locked"
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                overlay?.destroy(); overlay = null
+                return@launch
+            }
+
+            if (unlockMode && unlockPin.isNotBlank()) {
+                enterPinDirectly(unlockPin)
+            }
+
+            if (km.isKeyguardLocked) {
+                log(LogType.Error, "Unlock: phone is still locked after PIN entry — check your PIN in Skills settings.")
+                if (voiceMode) AndroidTts.speak("Unlock failed, check your PIN in settings")
+                status.value = AgentStatus.Error
+                currentMessage.value = "Unlock failed — wrong PIN?"
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                overlay?.destroy(); overlay = null
+                return@launch
+            }
+
+            val loop = AgentLoop(
+                accessibilityService = a11y,
+                client = client,
+                settings = settings
+            ) { update ->
+                when (update) {
+                    is AgentUpdate.StatusChange -> {
+                        status.value = update.status
+                        if (update.status != AgentStatus.Running) {
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            overlay?.destroy()
+                            overlay = null
+                            if (unlockMode) {
+                                LLMAccessibilityService.instance?.performGlobalAction(
+                                    AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN
+                                )
+                                unlockMode = false
+                                unlockPin = ""
+                            }
+                        }
+                    }
+                    is AgentUpdate.Message -> {
+                        currentMessage.value = update.text
+                        updateNotification(update.text)
+                        if ((voiceMode || ttsEnabled) && update.text.isNotBlank()) {
+                            AndroidTts.speak(update.text)
+                        }
+                    }
+                    is AgentUpdate.Log -> addLog(update.entry)
+                    is AgentUpdate.TranscriptAdd -> {
+                        transcript.value = transcript.value +
+                            TranscriptEntry(isAssistant = update.isAssistant, content = update.content)
+                    }
+                }
+            }
+
+            agentLoop = loop
             loop.run(agentGoal)
         }
     }
 
+    private fun finishWithoutAgent() {
+        status.value = AgentStatus.Stopped
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     fun stopAgent() {
+        AndroidTts.stop()
         agentLoop?.stop()
         agentJob?.cancel()
         agentJob = null
         agentLoop = null
+        unlockMode = false
+        unlockPin = ""
         status.value = AgentStatus.Stopped
         currentMessage.value = "Stopped"
         stopForeground(STOP_FOREGROUND_REMOVE)
@@ -251,6 +320,65 @@ class AgentService : LifecycleService() {
         stopAgent()
         client.close()
         Log.i(TAG, "AgentService destroyed")
+    }
+
+    private suspend fun enterPinDirectly(pin: String) {
+        val a11y = LLMAccessibilityService.instance ?: return
+
+        @Suppress("DEPRECATION")
+        val wake = (getSystemService(Context.POWER_SERVICE) as android.os.PowerManager)
+            .newWakeLock(
+                android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "llmdroid:unlock"
+            )
+        wake.acquire(15_000L)
+
+        try {
+            kotlinx.coroutines.delay(300)
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                a11y.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+                kotlinx.coroutines.delay(200)
+            }
+
+            val m = resources.displayMetrics
+            val cx = m.widthPixels / 2
+            val cy = m.heightPixels / 2
+            val swipeFrom = (m.heightPixels * 0.80).toInt()
+            val swipeTo   = (m.heightPixels * 0.25).toInt()
+            a11y.swipeGesture(cx, cy, cx, cy, 50)
+            kotlinx.coroutines.delay(400)
+            a11y.swipeGesture(cx, swipeFrom, cx, swipeTo, 300)
+            kotlinx.coroutines.delay(800)
+
+            val setTextOk = a11y.trySetTextOnEditableNode(pin)
+            log(LogType.System, "Unlock: set-text → ${if (setTextOk) "ok" else "no editable field, trying digit buttons"}")
+
+            if (!setTextOk) {
+                for (digit in pin) {
+                    var tapped = a11y.tapNodeWithText(digit.toString())
+                    if (!tapped) {
+                        a11y.swipeGesture(cx, swipeFrom, cx, swipeTo, 300)
+                        kotlinx.coroutines.delay(500)
+                        tapped = a11y.tapNodeWithText(digit.toString())
+                    }
+                    log(LogType.System, "Unlock: digit '$digit' → ${if (tapped) "ok" else "missed"}")
+                    kotlinx.coroutines.delay(200)
+                }
+            }
+
+            kotlinx.coroutines.delay(200)
+            val confirmed = a11y.tapConfirmButton()
+            log(LogType.System, "Unlock: confirm → ${if (confirmed) "tapped" else "not found, trying keyevent"}")
+            if (!confirmed) {
+                try { Runtime.getRuntime().exec(arrayOf("input", "keyevent", "66")) } catch (_: Exception) {}
+            }
+
+            kotlinx.coroutines.delay(1000)
+            log(LogType.System, "Unlock: PIN entry done")
+        } finally {
+            wake.release()
+        }
     }
 
     private fun handleTextCommand(query: String): Boolean {
@@ -293,8 +421,7 @@ class AgentService : LifecycleService() {
     }
 
     private fun handleOpenCommand(app: AppLookup.AppResult) {
-        val intent = packageManager.getLaunchIntentForPackage(app.packageName)
-            ?: return
+        val intent = packageManager.getLaunchIntentForPackage(app.packageName) ?: return
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
     }

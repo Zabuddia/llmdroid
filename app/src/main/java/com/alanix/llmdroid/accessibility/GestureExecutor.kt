@@ -38,6 +38,7 @@ class GestureExecutor(private val service: LLMAccessibilityService) {
                 "home" -> globalAction(AccessibilityService.GLOBAL_ACTION_HOME)
                 "notifications" -> globalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
                 "recents" -> globalAction(AccessibilityService.GLOBAL_ACTION_RECENTS)
+                "lock_screen" -> globalAction(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
                 "wait" -> doWait(action.duration ?: 1000)
                 "swipe" -> doSwipe(action.x1 ?: 0, action.y1 ?: 0, action.x2 ?: 0, action.y2 ?: 0, action.duration ?: 300)
                 "launch" -> doLaunch(action.packageName ?: "")

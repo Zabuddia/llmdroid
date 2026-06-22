@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -34,6 +35,13 @@ class SettingsStore(private val context: Context) {
         private val KEY_SKILL_PLAY_ENABLED = booleanPreferencesKey("skill_play_enabled")
         private val KEY_SKILL_TEXT_ENABLED = booleanPreferencesKey("skill_text_enabled")
         private val KEY_SKILL_MESSAGE_ENABLED = booleanPreferencesKey("skill_message_enabled")
+        private val KEY_TTS_ENABLED = booleanPreferencesKey("tts_enabled")
+        private val KEY_TTS_RATE = floatPreferencesKey("tts_rate")
+        private val KEY_TTS_PITCH = floatPreferencesKey("tts_pitch")
+        private val KEY_UNLOCK_PIN = stringPreferencesKey("unlock_pin")
+        private val KEY_SKILL_UNLOCK_ENABLED = booleanPreferencesKey("skill_unlock_enabled")
+        private val KEY_SEARCH_APP = stringPreferencesKey("search_app")
+        private val KEY_SKILL_SEARCH_ENABLED = booleanPreferencesKey("skill_search_enabled")
 
         const val DEFAULT_SERVER_URL = "http://alan-framework:4000"
         const val DEFAULT_MODEL = "qwen3.6-35b-a3b"
@@ -76,6 +84,7 @@ Supported actions (all fields shown, optional fields may be omitted):
   clipboard_set {"action":"clipboard_set","text":"..."}
   clipboard_get {"action":"clipboard_get"}
   call          {"action":"call","contactName":"Alice"}
+  lock_screen   {"action":"lock_screen"}
 
 Rules:
 - To open any app, ALWAYS use {"action":"launch","packageName":"..."} — never navigate the home screen or app drawer.
@@ -105,6 +114,13 @@ Rules:
     val skillPlayEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_PLAY_ENABLED] ?: true }
     val skillTextEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_TEXT_ENABLED] ?: true }
     val skillMessageEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_MESSAGE_ENABLED] ?: true }
+    val ttsEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_TTS_ENABLED] ?: false }
+    val ttsRate: Flow<Float> = context.dataStore.data.map { it[KEY_TTS_RATE] ?: 1.0f }
+    val ttsPitch: Flow<Float> = context.dataStore.data.map { it[KEY_TTS_PITCH] ?: 1.0f }
+    val unlockPin: Flow<String> = context.dataStore.data.map { it[KEY_UNLOCK_PIN] ?: "" }
+    val skillUnlockEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_UNLOCK_ENABLED] ?: false }
+    val searchApp: Flow<String> = context.dataStore.data.map { it[KEY_SEARCH_APP] ?: "" }
+    val skillSearchEnabled: Flow<Boolean> = context.dataStore.data.map { it[KEY_SKILL_SEARCH_ENABLED] ?: true }
 
     suspend fun setServerUrl(value: String) = context.dataStore.edit { it[KEY_SERVER_URL] = value }
     suspend fun setApiKey(value: String) = context.dataStore.edit { it[KEY_API_KEY] = value }
@@ -124,4 +140,11 @@ Rules:
     suspend fun setSkillPlayEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_PLAY_ENABLED] = value }
     suspend fun setSkillTextEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_TEXT_ENABLED] = value }
     suspend fun setSkillMessageEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_MESSAGE_ENABLED] = value }
+    suspend fun setTtsEnabled(value: Boolean) = context.dataStore.edit { it[KEY_TTS_ENABLED] = value }
+    suspend fun setTtsRate(value: Float) = context.dataStore.edit { it[KEY_TTS_RATE] = value }
+    suspend fun setTtsPitch(value: Float) = context.dataStore.edit { it[KEY_TTS_PITCH] = value }
+    suspend fun setUnlockPin(value: String) = context.dataStore.edit { it[KEY_UNLOCK_PIN] = value }
+    suspend fun setSkillUnlockEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_UNLOCK_ENABLED] = value }
+    suspend fun setSearchApp(value: String) = context.dataStore.edit { it[KEY_SEARCH_APP] = value }
+    suspend fun setSkillSearchEnabled(value: Boolean) = context.dataStore.edit { it[KEY_SKILL_SEARCH_ENABLED] = value }
 }

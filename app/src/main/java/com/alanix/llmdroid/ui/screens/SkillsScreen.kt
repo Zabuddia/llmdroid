@@ -20,9 +20,14 @@ import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Sms
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
@@ -96,6 +101,10 @@ fun SkillsScreen() {
     var skillPlayEnabled by remember { mutableStateOf(true) }
     var skillTextEnabled by remember { mutableStateOf(true) }
     var skillMessageEnabled by remember { mutableStateOf(true) }
+    var skillUnlockEnabled by remember { mutableStateOf(false) }
+    var unlockPin by remember { mutableStateOf("") }
+    var searchAppPkg by remember { mutableStateOf("") }
+    var skillSearchEnabled by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         musicAppPkg = settings.musicApp.first()
         messagingAppPkg = settings.messagingApp.first()
@@ -104,6 +113,10 @@ fun SkillsScreen() {
         skillPlayEnabled = settings.skillPlayEnabled.first()
         skillTextEnabled = settings.skillTextEnabled.first()
         skillMessageEnabled = settings.skillMessageEnabled.first()
+        skillUnlockEnabled = settings.skillUnlockEnabled.first()
+        unlockPin = settings.unlockPin.first()
+        searchAppPkg = settings.searchApp.first()
+        skillSearchEnabled = settings.skillSearchEnabled.first()
     }
 
     @Suppress("DEPRECATION")
@@ -235,6 +248,100 @@ fun SkillsScreen() {
                                 onClick = {
                                     messagingAppPkg = pkg
                                     scope.launch { settings.setMessagingApp(pkg) }
+                                    expanded = false
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        )
+
+        SkillCard(
+            icon = { Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(28.dp)) },
+            name = "Unlock & Run",
+            trigger = "\"unlock [task]\"",
+            description = "Enters your PIN on the lock screen, runs the task, then locks the phone again when done. Works with other skills — \"unlock play …\" will unlock then open your music app.",
+            examples = listOf(
+                "Hey Dicio, unlock play when I grow up",
+                "Hey Dicio, unlock open camera",
+                "Type: unlock text mom I'm on my way",
+            ),
+            requirements = emptyList(),
+            enabled = skillUnlockEnabled,
+            onEnabledChange = {
+                skillUnlockEnabled = it
+                scope.launch { settings.setSkillUnlockEnabled(it) }
+            },
+            config = {
+                OutlinedTextField(
+                    value = unlockPin,
+                    onValueChange = {
+                        unlockPin = it
+                        scope.launch { settings.setUnlockPin(it) }
+                    },
+                    label = { Text("Phone PIN / Password") },
+                    placeholder = { Text("Enter your lock screen PIN") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password)
+                )
+            }
+        )
+
+        SkillCard(
+            icon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(28.dp)) },
+            name = "Search",
+            trigger = "\"search [query]\"",
+            description = "Opens your default search app and hands the query to the AI agent, which is already inside the app and can type and run the search.",
+            examples = listOf(
+                "Hey Dicio, search weather in New York",
+                "Hey Dicio, search how to make sourdough",
+                "Type: search best hiking trails near me",
+            ),
+            requirements = emptyList(),
+            enabled = skillSearchEnabled,
+            onEnabledChange = {
+                skillSearchEnabled = it
+                scope.launch { settings.setSkillSearchEnabled(it) }
+            },
+            config = {
+                var expanded by remember { mutableStateOf(false) }
+                val selectedLabel = installedApps.firstOrNull { it.second == searchAppPkg }?.first
+                    ?: if (searchAppPkg.isBlank()) "Not set — AI agent will handle it" else searchAppPkg
+
+                ExposedDropdownMenuBox(
+                    expanded = expanded,
+                    onExpandedChange = { expanded = it },
+                ) {
+                    OutlinedTextField(
+                        value = selectedLabel,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Default search app") },
+                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable, true),
+                        colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+                    )
+                    ExposedDropdownMenu(
+                        expanded = expanded,
+                        onDismissRequest = { expanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("None (AI agent handles it)") },
+                            onClick = {
+                                searchAppPkg = ""
+                                scope.launch { settings.setSearchApp("") }
+                                expanded = false
+                            }
+                        )
+                        installedApps.forEach { (label, pkg) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = {
+                                    searchAppPkg = pkg
+                                    scope.launch { settings.setSearchApp(pkg) }
                                     expanded = false
                                 }
                             )
